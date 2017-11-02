@@ -49,7 +49,15 @@ export class ImageLoader {
    * Queue items
    * @type {Array}
    */
-  private queue: QueueItem[] = [];
+  private queue: string[] = [];
+
+  /**
+   * Priority Queue items
+   * These items should be processed before other items,
+   * usefull when a active view needs to be processed before preloading.
+   * @type {Array}
+   */
+  private priorityQueue: string[] = [];
 
   /**
    * This map contains the items that are queued or downloading/processing.
@@ -110,7 +118,7 @@ export class ImageLoader {
    * @returns {Promise<string>} returns a promise that resolves with the cached image URL
    */
   preload(imageUrl: string): Promise<string> {
-    return this.getImagePath(imageUrl);
+    return this.getImagePath(imageUrl, false);
   }
 
   /**
@@ -163,9 +171,10 @@ export class ImageLoader {
    * Gets the filesystem path of an image.
    * This will return the remote path if anything goes wrong or if the cache service isn't ready yet.
    * @param imageUrl {string} The remote URL of the image
+   * @param priority {boolean} Indicate if this image should be loaded with priority.
    * @returns {Promise<string>} Returns a promise that will always resolve with an image URL
    */
-  getImagePath(imageUrl: string): Promise<string> {
+  getImagePath(imageUrl: string, priority: boolean): Promise<string> {
 
     if (typeof imageUrl !== 'string' || imageUrl.length <= 0) {
       return Promise.reject('The image url provided was empty or invalid.');
@@ -178,7 +187,7 @@ export class ImageLoader {
           .then(resolve)
           .catch(() => {
             // image doesn't exist in cache, lets fetch it and save it
-            this.addItemToQueue(imageUrl, resolve, reject);
+            this.addItemToQueue(imageUrl, priority, resolve, reject);
           });
 
       };
@@ -208,23 +217,36 @@ export class ImageLoader {
    * @param resolve
    * @param reject
    */
-  private addItemToQueue(imageUrl: string, resolve, reject): void {
+  private addItemToQueue(imageUrl: string, priority: boolean, resolve, reject): void {
 
     //If this image is already being processed add the promise to it.
-    if(this.unCachedItemMap.has(imageUrl)) {
+    if (this.unCachedItemMap.has(imageUrl)) {
       let queueItem: QueueItem = this.unCachedItemMap.get(imageUrl);
       queueItem.resolves.push(resolve);
       queueItem.rejects.push(reject);
+
+      //If this is a prioriy image, and currently also waiting in non priority list move it.
+      if(priority && this.queue.indexOf(imageUrl) > -1) {
+        const index: number = this.queue.indexOf(imageUrl);
+        if (index !== -1) {
+          this.queue.splice(index, 1);
+        }
+        this.priorityQueue.push(imageUrl);
+      }
     } else {
       let queueItem: QueueItem = {
         imageUrl: imageUrl,
         resolves: [resolve],
         rejects: [reject]
       };
-
       this.unCachedItemMap.set(imageUrl, queueItem);
 
-      this.queue.push(queueItem);
+      //Check if we need to add the item to a queue or move it to priority.
+      if (priority) {
+        this.priorityQueue.push(imageUrl);
+      } else {
+        this.queue.push(imageUrl);
+      }
     }
     this.processQueue();
   }
@@ -235,7 +257,7 @@ export class ImageLoader {
    */
   private get canProcess(): boolean {
     return (
-      this.queue.length > 0
+      (this.queue.length > 0 || this.priorityQueue.length > 0)
       && this.processing < this.concurrency
     );
   }
@@ -252,7 +274,12 @@ export class ImageLoader {
     this.processing++;
 
     // take the first item from queue
-    const currentItem: QueueItem = this.queue.splice(0, 1)[0];
+    const currentItemKey: string = this.priorityQueue.length > 0 ? this.priorityQueue.splice(0, 1)[0] : this.queue.splice(0, 1)[0];
+
+    if(!this.unCachedItemMap.has(currentItemKey)) {
+      return;
+    }
+    const currentItem: QueueItem = this.unCachedItemMap.get(currentItemKey);
 
     // create FileTransferObject instance if needed
     // we would only reach here if current jobs < concurrency limit
@@ -286,14 +313,14 @@ export class ImageLoader {
         return this.getCachedImagePath(currentItem.imageUrl);
       })
       .then((localUrl) => {
-        for(let res of currentItem.resolves) {
+        for (let res of currentItem.resolves) {
           res(localUrl);
         }
         this.unCachedItemMap.delete(currentItem.imageUrl);
         done();
       })
       .catch((e) => {
-        for(let rej of currentItem.rejects) {
+        for (let rej of currentItem.rejects) {
           rej();
         }
         this.unCachedItemMap.delete(currentItem.imageUrl);

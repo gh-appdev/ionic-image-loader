@@ -150,7 +150,7 @@ export class ImgLoader implements OnInit {
   }
 
   private updateImage(imageUrl: string) {
-    this._imageLoader.getImagePath(imageUrl)
+    this._imageLoader.getImagePath(imageUrl, true)
       .then((imageUrl: string) => this.setImage(imageUrl))
       .catch((error: any) => this.setImage(this.fallbackUrl || imageUrl));
   }
