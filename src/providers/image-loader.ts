@@ -14,8 +14,8 @@ interface IndexItem {
 
 interface QueueItem {
   imageUrl: string;
-  resolve: Function;
-  reject: Function;
+  resolves: Function[];
+  rejects: Function[];
 }
 
 @Injectable()
@@ -50,6 +50,12 @@ export class ImageLoader {
    * @type {Array}
    */
   private queue: QueueItem[] = [];
+
+  /**
+   * This map contains the items that are queued or downloading/processing.
+   * @type {Map<string, QueueItem>}
+   */
+  private unCachedItemMap: Map<string, QueueItem> = new Map<string, QueueItem>();
 
   private transferInstances: FileTransferObject[] = [];
 
@@ -204,14 +210,23 @@ export class ImageLoader {
    */
   private addItemToQueue(imageUrl: string, resolve, reject): void {
 
-    this.queue.push({
-      imageUrl,
-      resolve,
-      reject
-    });
+    //If this image is already being processed add the promise to it.
+    if(this.unCachedItemMap.has(imageUrl)) {
+      let queueItem: QueueItem = this.unCachedItemMap.get(imageUrl);
+      queueItem.resolves.push(resolve);
+      queueItem.rejects.push(reject);
+    } else {
+      let queueItem: QueueItem = {
+        imageUrl: imageUrl,
+        resolves: [resolve],
+        rejects: [reject]
+      };
 
+      this.unCachedItemMap.set(imageUrl, queueItem);
+
+      this.queue.push(queueItem);
+    }
     this.processQueue();
-
   }
 
   /**
@@ -271,11 +286,17 @@ export class ImageLoader {
         return this.getCachedImagePath(currentItem.imageUrl);
       })
       .then((localUrl) => {
-        currentItem.resolve(localUrl);
+        for(let res of currentItem.resolves) {
+          res(localUrl);
+        }
+        this.unCachedItemMap.delete(currentItem.imageUrl);
         done();
       })
       .catch((e) => {
-        currentItem.reject();
+        for(let rej of currentItem.rejects) {
+          rej();
+        }
+        this.unCachedItemMap.delete(currentItem.imageUrl);
         this.throwError(e);
         done();
       });
