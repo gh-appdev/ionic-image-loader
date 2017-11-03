@@ -266,8 +266,13 @@ var ImageLoader = (function () {
             _this.transferInstances.push(transfer);
             _this.processQueue();
         };
-        var localPath = this.file.cacheDirectory + this.config.cacheDirectoryName + '/' + this.createFileName(currentItem.imageUrl);
-        transfer.download(currentItem.imageUrl, localPath, Boolean(this.config.fileTransferOptions.trustAllHosts), this.config.fileTransferOptions)
+        var localDir = this.file.cacheDirectory + this.config.cacheDirectoryName;
+        var localPath = this.createFileName(currentItem.imageUrl);
+        var tempPath = localPath + "_" + new Date().getTime();
+        transfer.download(currentItem.imageUrl, localDir + "/" + tempPath, Boolean(this.config.fileTransferOptions.trustAllHosts), this.config.fileTransferOptions)
+            .then(function (file) {
+            return _this.file.moveFile(localDir, tempPath, localDir, localPath);
+        })
             .then(function (file) {
             if (_this.shouldIndex) {
                 _this.addFileToIndex(file).then(_this.maintainCacheSize.bind(_this));

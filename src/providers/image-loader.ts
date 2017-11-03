@@ -303,9 +303,14 @@ export class ImageLoader {
       this.processQueue();
     };
 
-    const localPath = this.file.cacheDirectory + this.config.cacheDirectoryName + '/' + this.createFileName(currentItem.imageUrl);
+    const localDir = this.file.cacheDirectory + this.config.cacheDirectoryName;
+    const localPath = this.createFileName(currentItem.imageUrl);
+    const tempPath = localPath + "_" + new Date().getTime();
 
-    transfer.download(currentItem.imageUrl, localPath, Boolean(this.config.fileTransferOptions.trustAllHosts), this.config.fileTransferOptions)
+    transfer.download(currentItem.imageUrl, localDir + "/" + tempPath, Boolean(this.config.fileTransferOptions.trustAllHosts), this.config.fileTransferOptions)
+      .then((file: FileEntry) => {
+        return this.file.moveFile(localDir, tempPath, localDir, localPath);
+      })
       .then((file: FileEntry) => {
         if (this.shouldIndex) {
           this.addFileToIndex(file).then(this.maintainCacheSize.bind(this));
